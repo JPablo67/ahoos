@@ -25,7 +25,7 @@ services:
     build: .
     restart: always
     ports:
-      - "4501:3000"
+      - "4502:3000"
     env_file: .env
     environment:
       SENTRY_RELEASE: ${SENTRY_RELEASE:-unknown}
