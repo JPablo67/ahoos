@@ -1,0 +1,116 @@
+import type { ActionFunctionArgs } from "@remix-run/node";
+import * as Sentry from "@sentry/remix";
+import { authenticate } from "../shopify.server";
+import db from "../db.server";
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+    const { topic, shop, session, admin, payload } = await authenticate.webhook(request);
+
+    console.log(`[Webhook] Received ${topic} for shop ${shop}`);
+
+    Sentry.getCurrentScope().setTag("shop", shop);
+    Sentry.getCurrentScope().setTag("webhook_topic", topic);
+
+    if (!admin) {
+        console.log("[Webhook] No admin context");
+        return new Response("OK", { status: 200 });
+    }
+
+    // Payload for inventory_levels/update:
+    // { inventory_item_id: 123, location_id: 456, available: 10, ... }
+    const { inventory_item_id, available } = payload as any;
+
+    console.log(`[Webhook] Inventory update: Item ${inventory_item_id}, Available ${available}`);
+
+    if (available && available > 0) {
+        // Stock returned!
+
+        // 1. Check if "Auto-Reactivation" is globally enabled for this shop
+        // We need to fetch settings. Authenticate webhook gives us 'shop' domain.
+        const settings = await db.settings.findUnique({ where: { shop } });
+
+        if (!settings?.autoReactivate) {
+            console.log(`[Webhook] Auto-Reactivation is OFF for ${shop}. Skipping.`);
+            return new Response("OK", { status: 200 });
+        }
+
+        // 2. We need to find the product associated with this inventory item.
+        const query = `
+        query findProduct($inventoryItemId: ID!) {
+            inventoryItem(id: $inventoryItemId) {
+                variant {
+                    sku
+                    product {
+                        id
+                        title
+                        status
+                        tags
+                        featuredImage { url }
+                    }
+                }
+            }
+        }
+     `;
+
+        // Inventory Item ID in payload is usually just a number, but GraphQL needs GID
+        const gid = `gid://shopify/InventoryItem/${inventory_item_id}`;
+        console.log(`[Webhook] Querying product for Inventory Item GID: ${gid}`);
+
+        const response = await admin.graphql(query, { variables: { inventoryItemId: gid } });
+        const responseJson = await response.json();
+
+        console.log(`[Webhook] GraphQL Response: ${JSON.stringify(responseJson)}`);
+
+        const variant = responseJson.data?.inventoryItem?.variant;
+        const product = variant?.product;
+
+        if (!product) {
+            console.log(`[Webhook] No product found for inventory item ${gid}. Skipping.`);
+            return new Response("OK", { status: 200 });
+        }
+
+        const hasNewTag = product.tags && product.tags.includes("auto-changed-draft");
+        const hasOldTag = product.tags && product.tags.includes("auto-archived-oos");
+
+        if (hasNewTag || hasOldTag) {
+            console.log(`[Webhook] MATCH! Reactivating product ${product.title}`);
+
+            // Reactivate
+            const updateQuery = `
+            mutation reactivate($id: ID!, $tags: [String!]!) {
+                productChangeStatus(productId: $id, status: ACTIVE) {
+                    userErrors { field message }
+                }
+                tagsRemove(id: $id, tags: $tags) {
+                    userErrors { field message }
+                }
+            }
+        `;
+
+            // Remove BOTH tags to be clean
+            const tagsToRemove = ["auto-changed-draft", "auto-archived-oos"];
+            const updateRes = await admin.graphql(updateQuery, { variables: { id: product.id, tags: tagsToRemove } });
+            const updateJson = await updateRes.json();
+            console.log(`[Webhook] Update Response: ${JSON.stringify(updateJson)}`);
+
+            // Log
+            await db.activityLog.create({
+                data: {
+                    shop,
+                    productId: product.id,
+                    productTitle: product.title,
+                    productSku: variant.sku,
+                    productImageUrl: product.featuredImage?.url || null,
+                    method: "WEBHOOK",
+                    action: "REACTIVATE"
+                }
+            });
+        } else {
+            console.log(`[Webhook] Product not found or tag missing. Tags: ${product?.tags}`);
+        }
+    } else {
+        console.log("[Webhook] Stock is 0 or undefined, ignoring.");
+    }
+
+    return new Response("OK", { status: 200 });
+};
