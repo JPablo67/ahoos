@@ -233,10 +233,7 @@ export default function TagsPage() {
                     <BlockStack gap="500">
                         <Card>
                             <BlockStack gap="400">
-                                <Text as="h2" variant="headingMd">Identify SKUs</Text>
-                                <Text as="p" variant="bodyMd" tone="subdued">
-                                    Paste a list of SKUs separated by spaces, commas, or new lines. We will scan your store for matching products.
-                                </Text>
+                                
                                 <TextField
                                     label="SKU List"
                                     value={skuInput}
