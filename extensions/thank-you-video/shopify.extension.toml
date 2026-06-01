@@ -1,0 +1,36 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "Thank You Video"
+handle = "thank-you-video"
+uid = "d7e773aa-90eb-fc68-977e-9f694c6a6b952db5b25f"
+type = "ui_extension"
+
+  [[extensions.targeting]]
+  module = "./src/index.tsx"
+  target = "purchase.thank-you.block.render"
+
+  [extensions.capabilities]
+  network_access = false
+  block_progress = false
+  api_access = false
+
+  [extensions.settings]
+
+    [[extensions.settings.fields]]
+    key = "video_url"
+    type = "single_line_text_field"
+    name = "YouTube video URL"
+    description = "Paste the full YouTube URL (e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ or https://youtu.be/dQw4w9WgXcQ)."
+
+    [[extensions.settings.fields]]
+    key = "heading"
+    type = "single_line_text_field"
+    name = "Heading"
+    description = "Optional. Shown above the thumbnail."
+
+    [[extensions.settings.fields]]
+    key = "description"
+    type = "single_line_text_field"
+    name = "Description"
+    description = "Optional. Short line shown below the heading."

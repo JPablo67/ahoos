@@ -25,6 +25,10 @@ node_modules
 # Shopify CLI local state
 .shopify
 
+# Checkout UI extensions — deployed separately via `shopify app deploy`,
+# never loaded by the Remix runtime inside the container.
+extensions
+
 # Docs and changelogs
 *.md
 
